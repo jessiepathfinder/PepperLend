@@ -131,3 +131,4 @@ dist
 
 # hardhat artifacts
 artifacts/
+cache/solidity-files-cache.json
