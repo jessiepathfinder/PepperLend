@@ -3,13 +3,10 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "./interfaces/IERC20DebtToken.sol";
 
-interface IERC20DebtToken is IERC20{
-	function burn(address account, uint256 amount) external;
-	function mint(address account, uint256 amount) external;
-}
-
-contract ERC20DebtToken is ERC20, IERC20DebtToken{
+contract ERC20DebtToken is ERC20, IERC20DebtToken {
 	uint8 private immutable _decimals;
 	address public immutable owner;
 	function decimals() public view override returns (uint8){

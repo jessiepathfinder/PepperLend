@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./ERC20DebtToken.sol";
 
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
 struct NFTDebtPosition{
 	uint128 initialDebt;
 	uint128 collateral;
@@ -14,7 +16,7 @@ struct NFTDebtPosition{
 
 
 
-contract NFTDebtPositions is ERC721{
+contract NFTDebtPositions is ERC721,ReentrancyGuard{
 	using SafeERC20 for IERC20;
 	
 	//Static pool info
@@ -33,15 +35,6 @@ contract NFTDebtPositions is ERC721{
 	uint256 public lastBidAmount;
 	uint256 public auctionTimer;
 	
-	//Re-entrancy lock
-	uint256 private lock;
-	modifier locked(){
-		require(lock < 2, "PepperLend: LOCKED");
-		lock = 2;
-		_;
-		lock = 1;
-	}
-	
 	constructor(string memory name_, string memory symbol_, uint8 decimals_, string memory name1_, string memory symbol1_, uint8 decimals1_, IERC20 collateralToken_, IERC20 borrowedToken_) ERC721(name_, symbol_) {
 		decimals = decimals_;
 		collateralToken = collateralToken_;
@@ -49,24 +42,23 @@ contract NFTDebtPositions is ERC721{
 		debtToken = new ERC20DebtToken(name1_, symbol1_, decimals1_);
     }
 	
-	function deposit(uint256 amount) external locked{
-		if(amount > 0){
-			borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
-			uint256 totalPoolBalanceCache = totalPoolBalance;
-			uint256 supply = debtToken.totalSupply();
-			if(supply == 0){
-				debtToken.mint(msg.sender, amount);
-			} else{
-				debtToken.mint(msg.sender, (amount * supply) / totalPoolBalanceCache);
-			}
-			
-			totalPoolBalance = totalPoolBalanceCache + amount;
-			availablePoolBalance += amount;
+	function deposit(uint256 amount) external nonReentrant {
+		
+		borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
+		uint256 totalPoolBalanceCache = totalPoolBalance;
+		uint256 supply = debtToken.totalSupply();
+		if(supply == 0 || totalPoolBalanceCache == 0){
+			debtToken.mint(msg.sender, amount);
+		} else{
+			debtToken.mint(msg.sender, (amount * supply) / totalPoolBalanceCache);
 		}
+		
+		totalPoolBalance = totalPoolBalanceCache + amount;
+		availablePoolBalance += amount;
 	}
 	
 	//When processing withdraws and borrows, the available pool balance is reduced.
-	function _reduceAvailableBalance(uint256 amount, bool borrows) private{
+	function _reduceAvailableBalance(uint256 amount, bool borrows) private {
 		uint256 availablePoolBalanceCache = availablePoolBalance;
 		
 		//If we are borrowing, require a minimum 20% reserve ratio
@@ -77,15 +69,13 @@ contract NFTDebtPositions is ERC721{
 		}
 	}
 	
-	function withdraw(uint256 amount) external locked{
-		if(amount > 0){
-			uint256 supply = debtToken.totalSupply();
-			debtToken.burn(msg.sender, amount);
-			uint256 totalPoolBalanceCache = totalPoolBalance;
-			uint256 withdrawn = (amount * totalPoolBalanceCache) / supply;
-			borrowedToken.safeTransfer(msg.sender, withdrawn);
-			_reduceAvailableBalance(withdrawn, false);
-			totalPoolBalance = totalPoolBalanceCache - withdrawn;
-		}
+	function withdraw(uint256 amount) external nonReentrant {
+		uint256 supply = debtToken.totalSupply();
+		debtToken.burn(msg.sender, amount);
+		uint256 totalPoolBalanceCache = totalPoolBalance;
+		uint256 withdrawn = (amount * totalPoolBalanceCache) / supply;
+		borrowedToken.safeTransfer(msg.sender, withdrawn);
+		_reduceAvailableBalance(withdrawn, false);
+		totalPoolBalance = totalPoolBalanceCache - withdrawn;
 	}
 }
