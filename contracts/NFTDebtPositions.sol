@@ -31,6 +31,7 @@ contract NFTDebtPositions is ERC721{
 	uint256 public constant collateralRatio=2e8;	// given where 1e8 = 100% collateral etc
 	bool public immutable reversePair;				// if true reverse the prices in a Pair 
 	uint public constant term = 1 weeks;
+	uint256 public constant feeRate = 1; 			// fees are in 0.1% increments
 
 	using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
@@ -115,10 +116,13 @@ contract NFTDebtPositions is ERC721{
 		out = getCredit(amount);
 		require((out + totalPoolBalance / 5)<=availablePoolBalance,"PepperLend: Insufficient available balance!");
 	}
+	function max(uint256 a, uint256 b) public pure returns (uint256) {
+		return a >= b ? a : b;
+	}
 
 	function borrow(uint256 amount) external {
 		uint256 credit = getCredit(amount);
-		uint256 fees = credit / 1000;
+		uint256 fees = max(1, feeRate * credit / 1000);
 		uint256 debt = credit + fees;
 		require(debt <= type(uint192).max, "PepperLend: Debt amount exceeds 192-bit limit!");
 
