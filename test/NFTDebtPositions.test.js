@@ -38,7 +38,7 @@ describe("NFTDebtPositions", function () {
 
         await this.appraisal.setPrice(NULL_ADDR,1e8); // set price to 1; NULL_ADDR is used in place of the peppermint pair address
 
-        this.debtPosition = await this.NFTDebtPosition.deploy("LEND/BORROW debt position", "LEND-BORROW", 18, "LEND-BORROW LLP", "LLP", 18, this.collateralToken.address, this.borrowedToken.address,NULL_ADDR, this.appraisal.address,false);
+        this.debtPosition = await this.NFTDebtPosition.deploy("LEND/BORROW debt position", "LEND-BORROW", "LEND-BORROW LLP", "LLP", 18, this.collateralToken.address, this.borrowedToken.address,NULL_ADDR, this.appraisal.address,false);
         await this.debtPosition.deployed();
 
         await this.borrowedToken.approve(this.debtPosition.address, 1000000);
