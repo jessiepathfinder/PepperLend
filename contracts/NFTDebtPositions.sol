@@ -10,6 +10,8 @@ import "./ERC20DebtToken.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
+import "@openzeppelin/contracts/interfaces/IERC3156FlashLender.sol";
 
 struct NFTDebtPosition{
 	uint256 collateral;
@@ -19,7 +21,7 @@ struct NFTDebtPosition{
 
 
 
-contract NFTDebtPositions is ERC721{
+contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 	using SafeERC20 for IERC20;
 	using SafeCast for uint256;
 	
@@ -203,4 +205,35 @@ contract NFTDebtPositions is ERC721{
 		totalPoolBalance += amount;
 		borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
 	}
+	
+	bytes32 public constant flashReturns = keccak256("ERC3156FlashBorrower.onFlashLoan");
+	
+	function maxFlashLoan(address token) external view returns (uint256){
+		require(token == address(borrowedToken), "PepperLend: This token can't be flash borrowed!");
+		return availablePoolBalance;
+	}
+	
+	function flashFee(address token, uint256 amount) external view returns (uint256){
+		require(token == address(borrowedToken), "PepperLend: This token can't be flash borrowed!");
+		return amount / 1000;
+	}
+	
+	function flashLoan(
+        IERC3156FlashBorrower receiver,
+        address token,
+        uint256 amount,
+        bytes calldata data
+    ) external returns (bool){
+		require(token == address(borrowedToken), "PepperLend: This token can't be flash borrowed!");
+		uint256 fee = amount / 1000;
+		_reduceAvailableBalance(amount, false); //Since this is a flash loan
+		borrowedToken.safeTransfer(address(receiver), amount);
+		require(receiver.onFlashLoan() == flashReturns, "PepperLend: invalid return value!");
+		uint256 postfee = amount + fee;
+		borrowedToken.safeTransferFrom(receiver, postfee);
+		totalPoolBalance += fee;
+		availablePoolBalance += postfee;
+	}
+	
+	
 }
