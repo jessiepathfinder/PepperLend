@@ -122,7 +122,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		return a >= b ? a : b;
 	}
 
-	function borrow(uint256 amount) external {
+	function _borrow(uint256 amount) private returns (uint256){
 		uint256 credit = getCredit(amount);
 		uint256 fees = max(1, feeRate * credit / 1000);
 		uint256 debt = credit + fees;
@@ -136,18 +136,29 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
         _safeMint(msg.sender, newItemId);
 
 		debts[newItemId] = NFTDebtPosition(amount, uint192(debt), (block.timestamp+term).toUint64());
-		
+		return credit;
+	}
+	function borrow(uint256 amount) external {
+		borrowedToken.safeTransfer(msg.sender, _borrow(amount));
 		collateralToken.safeTransferFrom(msg.sender, address(this), amount);
-		borrowedToken.safeTransfer(msg.sender, credit);
 	}
 	
-	function repay(uint256 position, uint256 amount, bool withLenderToken) external{
+	//Useful for margin trading - callee may swap borrowed token into collateral
+	function borrow2(ILateCollateralBorrower callee, uint256 amount, bytes calldata data) external{
+		uint256 borrowedAmount = _borrow(amount);
+		borrowedToken.safeTransfer(address(callee), borrowedAmount);
+		callee.handleLoan(msg.sender, borrowedAmount, amount, data);
+		collateralToken.safeTransferFrom(msg.sender, address(this), amount);
+	}
+		
+	function _repay(uint256 position, uint256 amount) private returns (uint256 returnedCollateral){
+		require(_isApprovedOrOwner(msg.sender, position), "PepperLend: Only position owner and approved addresses may repay!");
 		NFTDebtPosition memory loandata = debts[position];
 		require(loandata.expiry > block.timestamp, "PepperLend: Liquidation in progress!");
 		
 		require(loandata.debt >= amount, "PepperLend: Repayment exceeds outstanding debt amount!");
 		
-		uint256 returnedCollateral = (amount * loandata.collateral) / loandata.debt;
+		returnedCollateral = (amount * loandata.collateral) / loandata.debt;
 		
 		unchecked{
 			loandata.debt -= uint192(amount);	
@@ -155,16 +166,19 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		
 		availablePoolBalance += amount;
 		debts[position] = loandata;
-		if(withLenderToken){
-			//Repay with lender token feature will come in handy if there is a severe shortage of liquidity
-			debtToken.burn(msg.sender, (amount * debtToken.totalSupply()) / totalPoolBalance);
-		} else{
-			borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
-		}
-		
-		collateralToken.safeTransfer(msg.sender, returnedCollateral);
 	}
 	
+	function repay(uint256 position, uint256 amount) external{
+		collateralToken.safeTransfer(msg.sender, _repay(position, amount));
+		borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
+	}
+	
+	function repay2(ILateRepaymentBorrower callee, uint256 position, uint256 amount, bytes calldata data) external{
+		uint256 returnedCollateral = _repay(position, amount);
+		collateralToken.safeTransfer(address(callee), returnedCollateral);
+		callee.handleRepayment(msg.sender, amount, returnedCollateral, data);
+		borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
+	}
 	
 	function liquidate(uint256 position, uint256 amount) external{
 		NFTDebtPosition memory loandata = debts[position];
@@ -234,7 +248,13 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		totalPoolBalance += fee;
 		availablePoolBalance += postfee;
 		return true;
-	}
-	
-	
+	}	
+}
+
+interface ILateCollateralBorrower{
+	function handleLoan(address initiator, uint256 borrowedAmount, uint256 collateralAmount, bytes calldata data) external;
+}
+
+interface ILateRepaymentBorrower{
+	function handleRepayment(address initiator, uint256 borrowedAmount, uint256 collateralAmount, bytes calldata data) external;
 }
