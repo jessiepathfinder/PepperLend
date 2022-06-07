@@ -228,11 +228,12 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		uint256 fee = amount / 1000;
 		_reduceAvailableBalance(amount, false); //Since this is a flash loan
 		borrowedToken.safeTransfer(address(receiver), amount);
-		require(receiver.onFlashLoan() == flashReturns, "PepperLend: invalid return value!");
+		require(receiver.onFlashLoan(msg.sender, address(borrowedToken), amount, fee, data) == flashReturns, "PepperLend: invalid return value!");
 		uint256 postfee = amount + fee;
-		borrowedToken.safeTransferFrom(receiver, postfee);
+		borrowedToken.safeTransferFrom(address(receiver), address(this), postfee);
 		totalPoolBalance += fee;
 		availablePoolBalance += postfee;
+		return true;
 	}
 	
 	
