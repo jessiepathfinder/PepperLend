@@ -127,7 +127,6 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		uint256 credit = getCredit(amount);
 		uint256 fees = max(1, feeRate * credit / 1000);
 		uint256 debt = credit + fees;
-		require(debt <= type(uint192).max, "PepperLend: Debt amount exceeds 192-bit limit!");
 
 		_reduceAvailableBalance(credit, true);
 		totalPoolBalance += fees;
@@ -136,7 +135,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 
         _safeMint(msg.sender, newItemId);
 
-		debts[newItemId] = NFTDebtPosition(amount, uint192(debt), (block.timestamp+term).toUint64());
+		debts[newItemId] = NFTDebtPosition(amount, toUint192(debt), (block.timestamp+term).toUint64());
 
 		return credit;
 	}
@@ -201,6 +200,10 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		
 		output = (amount * oracleRatio) / basePrice;
 	}
+	function toUint192(uint256 value) private pure returns (uint192) {
+        require(value <= type(uint192).max, "PepperLend: value doesn't fit in 192 bits");
+        return uint192(value);
+    }
 	function liquidate(uint256 position, uint256 amount) external{
 		NFTDebtPosition memory loandata = debts[position];
 		require(block.timestamp > loandata.expiry, "PepperLend: Debt position is not overdue!");
@@ -226,14 +229,14 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 			//Debit losses from total pool balance
 			uint256 losses = ((output - returnedCollateral) * loandata.debt) / loandata.collateral;
 			totalPoolBalance -= losses;
-			loandata.debt -= (amount + losses); //Reduce outstanding balance that have been forgiven
+			loandata.debt -= toUint192(amount + losses); //Reduce outstanding balance that have been forgiven
 		} else{
 			if(returnedCollateral > output){
 				//Credit profits to total pool balance
 				totalPoolBalance += ((returnedCollateral - output) * loandata.debt) / loandata.collateral;
 			}
 			unchecked{
-				loandata.debt -= amount;
+				loandata.debt -= toUint192(amount);
 			}
 		}
 		
