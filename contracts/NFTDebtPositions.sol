@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IAppraisalOracle.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./ERC20DebtToken.sol";
+import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
@@ -123,6 +124,8 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 	}
 
 	function _borrow(uint256 amount) private returns (uint256){
+		_tokenIds.increment();
+
 		uint256 credit = getCredit(amount);
 		uint256 fees = max(1, feeRate * credit / 1000);
 		uint256 debt = credit + fees;
@@ -136,9 +139,10 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
         _safeMint(msg.sender, newItemId);
 
 		debts[newItemId] = NFTDebtPosition(amount, uint192(debt), (block.timestamp+term).toUint64());
+
 		return credit;
 	}
-	function borrow(uint256 amount) external {
+	function borrow(uint256 amount) external  {
 		borrowedToken.safeTransfer(msg.sender, _borrow(amount));
 		collateralToken.safeTransferFrom(msg.sender, address(this), amount);
 	}
@@ -167,6 +171,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		
 		availablePoolBalance += amount;
 		debts[position] = loandata;
+
 	}
 	
 	function repay(uint256 position, uint256 amount) external{
@@ -180,10 +185,9 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		callee.handleRepayment(msg.sender, amount, returnedCollateral, data);
 		borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
 	}
-	
-	function liquidate(uint256 position, uint256 amount) external{
+	function estimateLiquidation(uint256 position, uint256 amount) external view returns(uint256 output){
 		NFTDebtPosition memory loandata = debts[position];
-		require(block.timestamp > loandata.expiry, "PepperLend: Debt still current!");
+		require(block.timestamp > loandata.expiry, "PepperLend: Debt position is not overdue!");
 		uint256 basePrice;
 		if(reversePair){
 			basePrice = 1e16 / oracle.getPair(pair);
@@ -191,7 +195,25 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 			basePrice = oracle.getPair(pair);
 		}
 		unchecked{
-			uint256 overdue = (loandata.expiry - block.timestamp) / 1 hours;
+			uint256 overdue = (block.timestamp - loandata.expiry) / 1 hours;
+			for(uint256 i = 0; i++ < overdue; ){
+				basePrice -= (basePrice / 100);
+			}
+		}
+		
+		output = (amount * oracleRatio) / basePrice;
+	}
+	function liquidate(uint256 position, uint256 amount) external{
+		NFTDebtPosition memory loandata = debts[position];
+		require(block.timestamp > loandata.expiry, "PepperLend: Debt position is not overdue!");
+		uint256 basePrice;
+		if(reversePair){
+			basePrice = 1e16 / oracle.getPair(pair);
+		} else{
+			basePrice = oracle.getPair(pair);
+		}
+		unchecked{
+			uint256 overdue = (block.timestamp - loandata.expiry) / 1 hours;
 			for(uint256 i = 0; i++ < overdue; ){
 				basePrice -= (basePrice / 100);
 			}
@@ -211,6 +233,9 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		availablePoolBalance += amount;
 		
 		debts[position] = loandata;
+
+		// console.log(output,collateralToken.balanceOf(address(this)));
+
 		borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
 		collateralToken.safeTransfer(msg.sender, output);
 	}
