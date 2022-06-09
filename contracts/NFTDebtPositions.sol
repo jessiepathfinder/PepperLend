@@ -36,8 +36,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 	uint public constant term = 1 weeks;
 	uint256 public constant feeRate = 1; 			// fees are in 0.1% increments
 
-	using Counters for Counters.Counter;
-    Counters.Counter private _tokenIds;
+	uint256 private _tokenIds;
 	mapping(uint256 => NFTDebtPosition) public debts;
 	
 	//oracle 
@@ -124,7 +123,6 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 	}
 
 	function _borrow(uint256 amount) private returns (uint256){
-		_tokenIds.increment();
 
 		uint256 credit = getCredit(amount);
 		uint256 fees = max(1, feeRate * credit / 1000);
@@ -134,7 +132,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		_reduceAvailableBalance(credit, true);
 		totalPoolBalance += fees;
 
-		uint256 newItemId = _tokenIds.current();
+		uint256 newItemId = _tokenIds++;
 
         _safeMint(msg.sender, newItemId);
 
@@ -206,6 +204,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 	function liquidate(uint256 position, uint256 amount) external{
 		NFTDebtPosition memory loandata = debts[position];
 		require(block.timestamp > loandata.expiry, "PepperLend: Debt position is not overdue!");
+		require(loandata.debt >= amount, "PepperLend: Liquidation amount exceeds remaining debts!");
 		uint256 basePrice;
 		if(reversePair){
 			basePrice = 1e16 / oracle.getPair(pair);
@@ -214,6 +213,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		}
 		unchecked{
 			uint256 overdue = (block.timestamp - loandata.expiry) / 1 hours;
+			
 			for(uint256 i = 0; i++ < overdue; ){
 				basePrice -= (basePrice / 100);
 			}
@@ -224,11 +224,20 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		
 		if(output > returnedCollateral){
 			//Debit losses from total pool balance
-			totalPoolBalance -= ((output - returnedCollateral) * loandata.debt) / loandata.collateral;
-		} else if(returnedCollateral > output){
-			//Credit profits to total pool balance
-			totalPoolBalance += ((returnedCollateral - output) * loandata.debt) / loandata.collateral;
+			uint256 losses = ((output - returnedCollateral) * loandata.debt) / loandata.collateral;
+			totalPoolBalance -= losses;
+			loandata.debt -= (amount + losses); //Reduce outstanding balance that have been forgiven
+		} else{
+			if(returnedCollateral > output){
+				//Credit profits to total pool balance
+				totalPoolBalance += ((returnedCollateral - output) * loandata.debt) / loandata.collateral;
+			}
+			unchecked{
+				loandata.debt -= amount;
+			}
 		}
+		
+		loandata.collateral -= output;
 		
 		availablePoolBalance += amount;
 		
