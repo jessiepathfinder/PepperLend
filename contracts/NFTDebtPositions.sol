@@ -193,6 +193,9 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		}
 		unchecked{
 			uint256 overdue = (block.timestamp - loandata.expiry) / 1 hours;
+			if(overdue > 720){
+				overdue = 720;
+			}
 			for(uint256 i = 0; i++ < overdue; ){
 				basePrice -= (basePrice / 100);
 			}
@@ -204,7 +207,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
         require(value <= type(uint192).max, "PepperLend: value doesn't fit in 192 bits");
         return uint192(value);
     }
-	function liquidate(uint256 position, uint256 amount) external{
+	function _liquidate(uint256 position, uint256 amount) private returns (uint256){
 		NFTDebtPosition memory loandata = debts[position];
 		require(block.timestamp > loandata.expiry, "PepperLend: Debt position is not overdue!");
 		require(loandata.debt >= amount, "PepperLend: Liquidation amount exceeds remaining debts!");
@@ -242,11 +245,16 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 		availablePoolBalance += amount;
 		
 		debts[position] = loandata;
-
-		// console.log(output,collateralToken.balanceOf(address(this)));
-
+	}
+	function liquidate(uint256 position, uint256 amount) external{
+		collateralToken.safeTransfer(msg.sender, _liquidate(position, amount));
 		borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
-		collateralToken.safeTransfer(msg.sender, output);
+	}
+	function liquidate2(IFlashLiquidator callee, uint256 position, uint256 amount, bytes calldata data) external{
+		uint256 output = _liquidate(position, amount);
+		collateralToken.safeTransfer(address(callee), output);
+		callee.handleLiquidation(msg.sender, amount, output, data);
+		borrowedToken.safeTransferFrom(msg.sender, address(this), amount);
 	}
 	
 	function donate(uint256 amount) external{ //Used for liquidity mining/insurance compensation
@@ -292,4 +300,7 @@ interface ILateCollateralBorrower{
 
 interface ILateRepaymentBorrower{
 	function handleRepayment(address initiator, uint256 borrowedAmount, uint256 collateralAmount, bytes calldata data) external;
+}
+interface IFlashLiquidator{
+	function handleLiquidation(address initiator, uint256 borrowedAmount, uint256 collateralAmount, bytes calldata data) external;
 }
