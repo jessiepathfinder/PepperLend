@@ -231,10 +231,7 @@ contract NFTDebtPositions is ERC721, IERC3156FlashLender{
 			totalPoolBalance -= losses;
 			loandata.debt -= toUint192(amount + losses); //Reduce outstanding balance that have been forgiven
 		} else{
-			if(returnedCollateral > output){
-				//Credit profits to total pool balance
-				totalPoolBalance += ((returnedCollateral - output) * loandata.debt) / loandata.collateral;
-			}
+			output = returnedCollateral;
 			unchecked{
 				loandata.debt -= toUint192(amount);
 			}
